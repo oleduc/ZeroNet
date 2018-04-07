@@ -44,7 +44,7 @@ class TestPeer:
         peer_file_server = site_temp.addPeer("127.0.0.1", 1544)
 
         # Testing streamFile
-        buff = peer_file_server.streamFile(site_temp.address, "content.json")
+        buff = peer_file_server.getFile(site_temp.address, "content.json", streaming=True)
         assert "sign" in buff.getvalue()
 
         # Testing getFile
@@ -56,8 +56,6 @@ class TestPeer:
 
     def testHashfield(self, site):
         sample_hash = site.content_manager.contents["content.json"]["files_optional"].values()[0]["sha512"]
-
-        assert not site.content_manager.hashfield
 
         site.storage.verifyFiles(quick_check=True)  # Find what optional files we have
 

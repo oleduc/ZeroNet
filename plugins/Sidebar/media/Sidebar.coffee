@@ -1,5 +1,5 @@
 class Sidebar extends Class
-	constructor: ->
+	constructor: (@wrapper) ->
 		@tag = null
 		@container = null
 		@opened = false
@@ -13,8 +13,9 @@ class Sidebar extends Class
 		@initFixbutton()
 		@dragStarted = 0
 		@globe = null
+		@preload_html = null
 
-		@original_set_site_info = wrapper.setSiteInfo  # We going to override this, save the original
+		@original_set_site_info = @wrapper.setSiteInfo  # We going to override this, save the original
 
 		# Start in opened state for debugging
 		if false
@@ -25,12 +26,15 @@ class Sidebar extends Class
 
 
 	initFixbutton: ->
+
 		# Detect dragging
 		@fixbutton.on "mousedown touchstart", (e) =>
+			if e.button > 0  # Right or middle click
+				return
 			e.preventDefault()
 
 			# Disable previous listeners
-			@fixbutton.off "click touchstop touchcancel"
+			@fixbutton.off "click touchend touchcancel"
 			@fixbutton.off "mousemove touchmove"
 
 			# Make sure its not a click
@@ -42,7 +46,9 @@ class Sidebar extends Class
 
 				@fixbutton_addx = @fixbutton.offset().left-mousex
 				@startDrag()
-		@fixbutton.parent().on "click touchstop touchcancel", (e) =>
+		@fixbutton.parent().on "click touchend touchcancel", (e) =>
+			if (+ new Date)-@dragStarted < 100
+				window.top.location = @fixbutton.find(".fixbutton-bg").attr("href")
 			@stopDrag()
 		@resized()
 		$(window).on "resize", @resized
@@ -84,7 +90,7 @@ class Sidebar extends Class
 		@fixbutton.parents().on "mousemove touchmove" ,@waitMove
 
 		# Stop dragging listener
-		@fixbutton.parents().on "mouseup touchstop touchend touchcancel", (e) =>
+		@fixbutton.parents().on "mouseup touchend touchend touchcancel", (e) =>
 			e.preventDefault()
 			@stopDrag()
 
@@ -107,9 +113,9 @@ class Sidebar extends Class
 		$(window).trigger "resize"
 
 		# Override setsiteinfo to catch changes
-		wrapper.setSiteInfo = (site_info) =>
+		@wrapper.setSiteInfo = (site_info) =>
 			@setSiteInfo(site_info)
-			@original_set_site_info.apply(wrapper, arguments)
+			@original_set_site_info.apply(@wrapper, arguments)
 
 		# Preload world.jpg
 		img = new Image();
@@ -136,21 +142,28 @@ class Sidebar extends Class
 
 
 	updateHtmlTag: ->
-		wrapper.ws.cmd "sidebarGetHtmlTag", {}, (res) =>
-			if @tag.find(".content").children().length == 0 # First update
-				@log "Creating content"
-				morphdom(@tag.find(".content")[0], '<div class="content">'+res+'</div>')
-				# @scrollable()
-				@when_loaded.resolve()
+		if @preload_html
+			@setHtmlTag(@preload_html)
+			@preload_html = null
+		else
+			@wrapper.ws.cmd "sidebarGetHtmlTag", {}, @setHtmlTag
 
-			else  # Not first update, patch the html to keep unchanged dom elements
-				@log "Patching content"
-				morphdom @tag.find(".content")[0], '<div class="content">'+res+'</div>', {
-					onBeforeMorphEl: (from_el, to_el) ->  # Ignore globe loaded state
-						if from_el.className == "globe" or from_el.className.indexOf("noupdate") >= 0
-							return false
-						else
-							return true
+	setHtmlTag: (res) =>
+		if @tag.find(".content").children().length == 0 # First update
+			@log "Creating content"
+			@container.addClass("loaded")
+			morphdom(@tag.find(".content")[0], '<div class="content">'+res+'</div>')
+			# @scrollable()
+			@when_loaded.resolve()
+
+		else  # Not first update, patch the html to keep unchanged dom elements
+			@log "Patching content"
+			morphdom @tag.find(".content")[0], '<div class="content">'+res+'</div>', {
+				onBeforeMorphEl: (from_el, to_el) ->  # Ignore globe loaded state
+					if from_el.className == "globe" or from_el.className.indexOf("noupdate") >= 0
+						return false
+					else
+						return true
 				}
 
 
@@ -207,20 +220,23 @@ class Sidebar extends Class
 			else
 				# Opened
 				targetx = @width
-				if not @opened
+				if @opened
+					@onOpened()
+				else
 					@when_loaded.done =>
 						@onOpened()
 				@opened = true
 
 			# Revent sidebar transitions
-			@tag.css("transition", "0.4s ease-out")
-			@tag.css("transform", "translateX(-#{targetx}px)").one transitionEnd, =>
-				@tag.css("transition", "")
-				if not @opened
-					@container.remove()
-					@container = null
-					@tag.remove()
-					@tag = null
+			if @tag
+				@tag.css("transition", "0.4s ease-out")
+				@tag.css("transform", "translateX(-#{targetx}px)").one transitionEnd, =>
+					@tag.css("transition", "")
+					if not @opened
+						@container.remove()
+						@container = null
+						@tag.remove()
+						@tag = null
 
 			# Revert body transformations
 			@log "stopdrag", "opened:", @opened
@@ -233,109 +249,187 @@ class Sidebar extends Class
 		@scrollable()
 
 		# Re-calculate height when site admin opened or closed
-		@tag.find("#checkbox-owned").off("click").on "click", =>
+		@tag.find("#checkbox-owned, #checkbox-autodownloadoptional").off("click touchend").on "click touchend", =>
 			setTimeout (=>
 				@scrollable()
 			), 300
 
 		# Site limit button
-		@tag.find("#button-sitelimit").off("click").on "click", =>
-			wrapper.ws.cmd "siteSetLimit", $("#input-sitelimit").val(), =>
-				wrapper.notifications.add "done-sitelimit", "done", "Site storage limit modified!", 5000
+		@tag.find("#button-sitelimit").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "siteSetLimit", $("#input-sitelimit").val(), (res) =>
+				if res == "ok"
+					@wrapper.notifications.add "done-sitelimit", "done", "Site storage limit modified!", 5000
+				@updateHtmlTag()
+			return false
+
+		# Site autodownload limit button
+		@tag.find("#button-autodownload_bigfile_size_limit").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "siteSetAutodownloadBigfileLimit", $("#input-autodownload_bigfile_size_limit").val(), (res) =>
+				if res == "ok"
+					@wrapper.notifications.add "done-bigfilelimit", "done", "Site bigfile auto download limit modified!", 5000
 				@updateHtmlTag()
 			return false
 
 		# Database reload
-		@tag.find("#button-dbreload").off("click").on "click", =>
-			wrapper.ws.cmd "dbReload", [], =>
-				wrapper.notifications.add "done-sitelimit", "done", "Database schema reloaded", 5000
+		@tag.find("#button-dbreload").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "dbReload", [], =>
+				@wrapper.notifications.add "done-dbreload", "done", "Database schema reloaded!", 5000
+				@updateHtmlTag()
+			return false
+
+		# Database rebuild
+		@tag.find("#button-dbrebuild").off("click touchend").on "click touchend", =>
+			@wrapper.notifications.add "done-dbrebuild", "info", "Database rebuilding...."
+			@wrapper.ws.cmd "dbRebuild", [], =>
+				@wrapper.notifications.add "done-dbrebuild", "done", "Database rebuilt!", 5000
 				@updateHtmlTag()
 			return false
 
 		# Update site
-		@tag.find("#button-update").off("click").on "click", =>
+		@tag.find("#button-update").off("click touchend").on "click touchend", =>
 			@tag.find("#button-update").addClass("loading")
-			wrapper.ws.cmd "siteUpdate", wrapper.site_info.address, =>
-				wrapper.notifications.add "done-updated", "done", "Site updated!", 5000
+			@wrapper.ws.cmd "siteUpdate", @wrapper.site_info.address, =>
+				@wrapper.notifications.add "done-updated", "done", "Site updated!", 5000
 				@tag.find("#button-update").removeClass("loading")
 			return false
 
 		# Pause site
-		@tag.find("#button-pause").off("click").on "click", =>
+		@tag.find("#button-pause").off("click touchend").on "click touchend", =>
 			@tag.find("#button-pause").addClass("hidden")
-			wrapper.ws.cmd "sitePause", wrapper.site_info.address
+			@wrapper.ws.cmd "sitePause", @wrapper.site_info.address
 			return false
 
 		# Resume site
-		@tag.find("#button-resume").off("click").on "click", =>
+		@tag.find("#button-resume").off("click touchend").on "click touchend", =>
 			@tag.find("#button-resume").addClass("hidden")
-			wrapper.ws.cmd "siteResume", wrapper.site_info.address
+			@wrapper.ws.cmd "siteResume", @wrapper.site_info.address
 			return false
 
 		# Delete site
-		@tag.find("#button-delete").off("click").on "click", =>
-			wrapper.displayConfirm "Are you sure?", "Delete this site", =>
-				@tag.find("#button-delete").addClass("loading")
-				wrapper.ws.cmd "siteDelete", wrapper.site_info.address, ->
-					document.location = $(".fixbutton-bg").attr("href")
+		@tag.find("#button-delete").off("click touchend").on "click touchend", =>
+			@wrapper.displayConfirm "Are you sure?", ["Delete this site", "Blacklist"], (confirmed) =>
+				if confirmed == 1
+					@tag.find("#button-delete").addClass("loading")
+					@wrapper.ws.cmd "siteDelete", @wrapper.site_info.address, ->
+						document.location = $(".fixbutton-bg").attr("href")
+				else if confirmed == 2
+					@wrapper.displayPrompt "Blacklist this site", "text", "Delete and Blacklist", "Reason", (reason) =>
+						@tag.find("#button-delete").addClass("loading")
+						@wrapper.ws.cmd "blacklistAdd", [@wrapper.site_info.address, reason]
+						@wrapper.ws.cmd "siteDelete", @wrapper.site_info.address, ->
+							document.location = $(".fixbutton-bg").attr("href")
+
+
 			return false
 
 		# Owned checkbox
-		@tag.find("#checkbox-owned").off("click").on "click", =>
-			wrapper.ws.cmd "siteSetOwned", [@tag.find("#checkbox-owned").is(":checked")]
+		@tag.find("#checkbox-owned").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "siteSetOwned", [@tag.find("#checkbox-owned").is(":checked")]
 
 		# Owned checkbox
-		@tag.find("#checkbox-autodownloadoptional").off("click").on "click", =>
-			wrapper.ws.cmd "siteSetAutodownloadoptional", [@tag.find("#checkbox-autodownloadoptional").is(":checked")]
+		@tag.find("#checkbox-autodownloadoptional").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "siteSetAutodownloadoptional", [@tag.find("#checkbox-autodownloadoptional").is(":checked")]
 
 		# Change identity button
-		@tag.find("#button-identity").off("click").on "click", =>
-			wrapper.ws.cmd "certSelect"
+		@tag.find("#button-identity").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "certSelect"
 			return false
 
-		# Owned checkbox
-		@tag.find("#checkbox-owned").off("click").on "click", =>
-			wrapper.ws.cmd "siteSetOwned", [@tag.find("#checkbox-owned").is(":checked")]
-
 		# Save settings
-		@tag.find("#button-settings").off("click").on "click", =>
-			wrapper.ws.cmd "fileGet", "content.json", (res) =>
+		@tag.find("#button-settings").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "fileGet", "content.json", (res) =>
 				data = JSON.parse(res)
 				data["title"] = $("#settings-title").val()
 				data["description"] = $("#settings-description").val()
 				json_raw = unescape(encodeURIComponent(JSON.stringify(data, undefined, '\t')))
-				wrapper.ws.cmd "fileWrite", ["content.json", btoa(json_raw)], (res) =>
+				@wrapper.ws.cmd "fileWrite", ["content.json", btoa(json_raw), true], (res) =>
 					if res != "ok" # fileWrite failed
-						wrapper.notifications.add "file-write", "error", "File write error: #{res}"
+						@wrapper.notifications.add "file-write", "error", "File write error: #{res}"
 					else
-						wrapper.notifications.add "file-write", "done", "Site settings saved!", 5000
+						@wrapper.notifications.add "file-write", "done", "Site settings saved!", 5000
+						if @wrapper.site_info.privatekey
+							@wrapper.ws.cmd "siteSign", {privatekey: "stored", inner_path: "content.json", update_changed_files: true}
 						@updateHtmlTag()
 			return false
 
-		# Sign content.json
-		@tag.find("#button-sign").off("click").on "click", =>
+
+		# Open site directory
+		@tag.find("#link-directory").off("click touchend").on "click touchend", =>
+			@wrapper.ws.cmd "serverShowdirectory", ["site", @wrapper.site_info.address]
+			return false
+
+		# Sign and publish content.json
+		$(document).on "click touchend", =>
+			@tag?.find("#button-sign-publish-menu").removeClass("visible")
+			@tag?.find(".contents + .flex").removeClass("sign-publish-flex")
+
+		menu = new Menu(@tag.find("#menu-sign-publish"))
+		menu.elem.css("margin-top", "-130px")  # Open upwards
+		menu.addItem "Sign", =>
 			inner_path = @tag.find("#input-contents").val()
 
-			if wrapper.site_info.privatekey
-				# Privatekey stored in users.json
-				wrapper.ws.cmd "siteSign", {privatekey: "stored", inner_path: inner_path, update_changed_files: true}, (res) =>
-					wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
-
-			else
-				# Ask the user for privatekey
-				wrapper.displayPrompt "Enter your private key:", "password", "Sign", (privatekey) => # Prompt the private key
-					wrapper.ws.cmd "siteSign", {privatekey: privatekey, inner_path: inner_path, update_changed_files: true}, (res) =>
+			@wrapper.ws.cmd "fileRules", {inner_path: inner_path}, (res) =>
+				if @wrapper.site_info.privatekey or @wrapper.site_info.auth_address in res.signers
+					# Privatekey stored in users.json
+					@wrapper.ws.cmd "siteSign", {privatekey: "stored", inner_path: inner_path, update_changed_files: true}, (res) =>
 						if res == "ok"
-							wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
+							@wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
+
+				else
+					# Ask the user for privatekey
+					@wrapper.displayPrompt "Enter your private key:", "password", "Sign", "", (privatekey) => # Prompt the private key
+						@wrapper.ws.cmd "siteSign", {privatekey: privatekey, inner_path: inner_path, update_changed_files: true}, (res) =>
+							if res == "ok"
+								@wrapper.notifications.add "sign", "done", "#{inner_path} Signed!", 5000
+
+			@tag.find(".contents + .flex").removeClass "active"
+			menu.hide()
+
+		menu.addItem "Publish", =>
+			inner_path = @tag.find("#input-contents").val()
+			@wrapper.ws.cmd "sitePublish", {"inner_path": inner_path, "sign": false}
+
+			@tag.find(".contents + .flex").removeClass "active"
+			menu.hide()
+
+		@tag.find("#menu-sign-publish").off("click touchend").on "click touchend", =>
+			if window.visible_menu == menu
+				@tag.find(".contents + .flex").removeClass "active"
+				menu.hide()
+			else
+				@tag.find(".contents + .flex").addClass "active"
+				@tag.find(".content-wrapper").prop "scrollTop", 10000
+				menu.show()
+			return false
+
+		$("body").on "click", =>
+			if @tag
+				@tag.find(".contents + .flex").removeClass "active"
+
+		@tag.find("#button-sign-publish").off("click touchend").on "click touchend", =>
+			inner_path = @tag.find("#input-contents").val()
+
+			@wrapper.ws.cmd "fileRules", {inner_path: inner_path}, (res) =>
+				if @wrapper.site_info.privatekey or @wrapper.site_info.auth_address in res.signers
+					# Privatekey stored in users.json
+					@wrapper.ws.cmd "sitePublish", {privatekey: "stored", inner_path: inner_path, sign: true}, (res) =>
+						if res == "ok"
+							@wrapper.notifications.add "sign", "done", "#{inner_path} Signed and published!", 5000
+
+				else
+					# Ask the user for privatekey
+					@wrapper.displayPrompt "Enter your private key:", "password", "Sign", "", (privatekey) => # Prompt the private key
+						@wrapper.ws.cmd "sitePublish", {privatekey: privatekey, inner_path: inner_path, sign: true}, (res) =>
+							if res == "ok"
+								@wrapper.notifications.add "sign", "done", "#{inner_path} Signed and published!", 5000
 
 			return false
 
-		# Publish content.json
-		@tag.find("#button-publish").off("click").on "click", =>
-			inner_path = @tag.find("#input-contents").val()
-			@tag.find("#button-publish").addClass "loading"
-			wrapper.ws.cmd "sitePublish", {"inner_path": inner_path, "sign": false}, =>
-				@tag.find("#button-publish").removeClass "loading"
+		# Close
+		@tag.find(".close").off("click touchend").on "click touchend", (e) =>
+			@startDrag()
+			@stopDrag()
+			return false
 
 		@loadGlobe()
 
@@ -349,7 +443,7 @@ class Sidebar extends Class
 				@unloadGlobe()
 
 		# We dont need site info anymore
-		wrapper.setSiteInfo = @original_set_site_info
+		@wrapper.setSiteInfo = @original_set_site_info
 
 
 	loadGlobe: =>
@@ -367,7 +461,7 @@ class Sidebar extends Class
 		img = new Image();
 		img.src = "/uimedia/globe/world.jpg";
 		img.onload = =>
-			wrapper.ws.cmd "sidebarGetPeers", [], (globe_data) =>
+			@wrapper.ws.cmd "sidebarGetPeers", [], (globe_data) =>
 				if @globe
 					@globe.scene.remove(@globe.points)
 					@globe.addData( globe_data, {format: 'magnitude', name: "hello", animated: false} )
@@ -380,9 +474,9 @@ class Sidebar extends Class
 						@globe.animate()
 					catch e
 						console.log "WebGL error", e
-						@tag.find(".globe").addClass("error").text("WebGL not supported")
+						@tag?.find(".globe").addClass("error").text("WebGL not supported")
 
-				@tag.find(".globe").removeClass("loading")
+				@tag?.find(".globe").removeClass("loading")
 
 
 	unloadGlobe: =>
@@ -392,7 +486,10 @@ class Sidebar extends Class
 		@globe = null
 
 
+wrapper = window.wrapper
 setTimeout ( ->
-	window.sidebar = new Sidebar()
+	window.sidebar = new Sidebar(wrapper)
 ), 500
+
+
 window.transitionEnd = 'transitionend webkitTransitionEnd oTransitionEnd otransitionend'

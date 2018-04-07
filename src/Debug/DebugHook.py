@@ -9,13 +9,17 @@ from Config import config
 last_error = None
 
 def shutdown():
-    try:
-        if "file_server" in dir(sys.modules["main"]):
-            gevent.spawn(sys.modules["main"].file_server.stop)
-        if "ui_server" in dir(sys.modules["main"]):
-            gevent.spawn(sys.modules["main"].ui_server.stop)
-    except Exception, err:
-        print "Proper shutdown error: %s" % err
+    print "Shutting down..."
+    if "file_server" in dir(sys.modules["main"]) and sys.modules["main"].file_server.running:
+        try:
+            if "file_server" in dir(sys.modules["main"]):
+                gevent.spawn(sys.modules["main"].file_server.stop)
+            if "ui_server" in dir(sys.modules["main"]):
+                gevent.spawn(sys.modules["main"].ui_server.stop)
+        except Exception, err:
+            print "Proper shutdown error: %s" % err
+            sys.exit(0)
+    else:
         sys.exit(0)
 
 # Store last error, ignore notify, allow manual error logging
@@ -30,9 +34,11 @@ def handleError(*args):
         last_error = args
     if args[0].__name__ == "KeyboardInterrupt":
         shutdown()
+        return
     if not silent and args[0].__name__ != "Notify":
         logging.exception("Unhandled exception")
-        sys.__excepthook__(*args)
+        if "greenlet.py" not in args[2].tb_frame.f_code.co_filename:  # Don't display error twice
+            sys.__excepthook__(*args)
 
 
 # Ignore notify errors

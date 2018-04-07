@@ -1,14 +1,20 @@
 class Loading
-	constructor: ->
+	constructor: (@wrapper) ->
 		if window.show_loadingscreen then @showScreen()
+		@timer_hide = null
 
 
 	setProgress: (percent) ->
-		$(".progressbar").css("width", percent*100+"%").css("opacity", "1").css("display", "block")
+		if @timer_hide
+			clearInterval @timer_hide
+		RateLimit 200, ->
+			$(".progressbar").css("transform": "scaleX(#{parseInt(percent*100)/100})").css("opacity", "1").css("display", "block")
 
 	hideProgress: ->
 		console.log "hideProgress"
-		$(".progressbar").css("width", "100%").css("opacity", "0").hideLater(1000)
+		@timer_hide = setTimeout ( =>
+			$(".progressbar").css("transform": "scaleX(1)").css("opacity", "0").hideLater(1000)
+		), 300
 
 
 	showScreen: ->
@@ -20,8 +26,9 @@ class Loading
 	showTooLarge: (site_info) ->
 		if $(".console .button-setlimit").length == 0 # Not displaying it yet
 			line = @printLine("Site size: <b>#{parseInt(site_info.settings.size/1024/1024)}MB</b> is larger than default allowed #{parseInt(site_info.size_limit)}MB", "warning")
-			button = $("<a href='#Set+limit' class='button button-setlimit'>Open site and set size limit to #{site_info.next_size_limit}MB</a>")
-			button.on "click", (-> return window.wrapper.setSizeLimit(site_info.next_size_limit) )
+			button = $("<a href='#Set+limit' class='button button-setlimit'>" + "Open site and set size limit to #{site_info.next_size_limit}MB" + "</a>")
+			button.on "click", =>
+				return @wrapper.setSizeLimit(site_info.next_size_limit)
 			line.after(button)
 			setTimeout (=>
 				@printLine('Ready.')

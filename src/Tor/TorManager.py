@@ -5,21 +5,27 @@ import binascii
 import sys
 import os
 import time
-
-import gevent
+import random
 import subprocess
 import atexit
+
+import gevent
 
 from Config import config
 from Crypt import CryptRsa
 from Site import SiteManager
 from lib.PySocks import socks
-from gevent.coros import RLock
+try:
+    from gevent.coros import RLock
+except:
+    from gevent.lock import RLock
 from util import helper
 from Debug import Debug
+from Plugin import PluginManager
 
 
-class TorManager:
+@PluginManager.acceptPlugins
+class TorManager(object):
     def __init__(self, fileserver_ip=None, fileserver_port=None):
         self.privatekeys = {}  # Onion: Privatekey
         self.site_onions = {}  # Site address: Onion
@@ -33,10 +39,10 @@ class TorManager:
         if config.tor == "disable":
             self.enabled = False
             self.start_onions = False
-            self.status = "Disabled"
+            self.setStatus("Disabled")
         else:
             self.enabled = True
-            self.status = "Waiting"
+            self.setStatus("Waiting")
 
         if fileserver_port:
             self.fileserver_port = fileserver_port
@@ -55,7 +61,7 @@ class TorManager:
                 assert self.connect(), "No connection"
                 self.log.debug("Tor proxy port %s check ok" % config.tor_proxy)
             except Exception, err:
-                self.log.debug("Tor proxy port %s check error: %s" % (config.tor_proxy, err))
+                self.log.info("Starting self-bundled Tor, due to Tor proxy port %s check error: %s" % (config.tor_proxy, err))
                 self.enabled = False
                 # Change to self-bundled Tor ports
                 from lib.PySocks import socks
@@ -67,6 +73,11 @@ class TorManager:
                 else:  # Not downloaded yet: Async mode
                     gevent.spawn(self.startTor)
 
+    def setStatus(self, status):
+        self.status = status
+        if "ui_server" in dir(sys.modules["main"]):
+            sys.modules["main"].ui_server.updateWebsocket()
+
     def startTor(self):
         if sys.platform.startswith("win"):
             try:
@@ -75,8 +86,10 @@ class TorManager:
 
                 self.log.info("Starting Tor client %s..." % self.tor_exe)
                 tor_dir = os.path.dirname(self.tor_exe)
-                self.tor_process = subprocess.Popen(r"%s -f torrc" % self.tor_exe, cwd=tor_dir, close_fds=True)
-                for wait in range(1,10):  # Wait for startup
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                self.tor_process = subprocess.Popen(r"%s -f torrc" % self.tor_exe, cwd=tor_dir, close_fds=True, startupinfo=startupinfo)
+                for wait in range(1, 10):  # Wait for startup
                     time.sleep(wait * 0.5)
                     self.enabled = True
                     if self.connect():
@@ -143,37 +156,44 @@ class TorManager:
         self.site_onions = {}
         self.privatekeys = {}
 
+        return self.connectController()
+
+    def connectController(self):
         if "socket_noproxy" in dir(socket):  # Socket proxy-patched, use non-proxy one
             conn = socket.socket_noproxy(socket.AF_INET, socket.SOCK_STREAM)
         else:
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        self.log.debug("Connecting to %s:%s" % (self.ip, self.port))
+        self.log.info("Connecting to Tor Controller %s:%s" % (self.ip, self.port))
         try:
             with self.lock:
                 conn.connect((self.ip, self.port))
-                res_protocol = self.send("PROTOCOLINFO", conn)
-
-                version = re.search('Tor="([0-9\.]+)', res_protocol).group(1)
-                # Version 0.2.7.5 required because ADD_ONION support
-                assert float(version.replace(".", "0", 2)) >= 207.5, "Tor version >=0.2.7.5 required, found: %s" % version
 
                 # Auth cookie file
+                res_protocol = self.send("PROTOCOLINFO", conn)
                 cookie_match = re.search('COOKIEFILE="(.*?)"', res_protocol)
                 if cookie_match:
-                    cookie_file = cookie_match.group(1)
+                    cookie_file = cookie_match.group(1).decode("string-escape")
                     auth_hex = binascii.b2a_hex(open(cookie_file, "rb").read())
                     res_auth = self.send("AUTHENTICATE %s" % auth_hex, conn)
+                elif config.tor_password:
+                    res_auth = self.send('AUTHENTICATE "%s"' % config.tor_password, conn)
                 else:
                     res_auth = self.send("AUTHENTICATE", conn)
 
                 assert "250 OK" in res_auth, "Authenticate error %s" % res_auth
-                self.status = u"Connected (%s)" % res_auth
+
+                # Version 0.2.7.5 required because ADD_ONION support
+                res_version = self.send("GETINFO version", conn)
+                version = re.search('version=([0-9\.]+)', res_version).group(1)
+                assert float(version.replace(".", "0", 2)) >= 207.5, "Tor version >=0.2.7.5 required, found: %s" % version
+
+                self.setStatus(u"Connected (%s)" % res_auth)
                 self.conn = conn
         except Exception, err:
             self.conn = None
-            self.status = u"Error (%s)" % err
-            self.log.error("Tor controller connect error: %s" % Debug.formatException(err))
+            self.setStatus(u"Error (%s)" % err)
+            self.log.warning("Tor controller connect error: %s" % Debug.formatException(err))
             self.enabled = False
         return self.conn
 
@@ -185,25 +205,37 @@ class TorManager:
         if self.enabled:
             self.log.debug("Start onions")
             self.start_onions = True
+            self.getOnion("global")
 
     # Get new exit node ip
     def resetCircuits(self):
         res = self.request("SIGNAL NEWNYM")
         if "250 OK" not in res:
-            self.status = u"Reset circuits error (%s)" % res
+            self.setStatus(u"Reset circuits error (%s)" % res)
             self.log.error("Tor reset circuits error: %s" % res)
 
     def addOnion(self):
+        if len(self.privatekeys) >= config.tor_hs_limit:
+            return random.choice([key for key in self.privatekeys.keys() if key != self.site_onions.get("global")])
+
+        result = self.makeOnionAndKey()
+        if result:
+            onion_address, onion_privatekey = result
+            self.privatekeys[onion_address] = onion_privatekey
+            self.setStatus(u"OK (%s onions running)" % len(self.privatekeys))
+            SiteManager.peer_blacklist.append((onion_address + ".onion", self.fileserver_port))
+            return onion_address
+        else:
+            return False
+
+    def makeOnionAndKey(self):
         res = self.request("ADD_ONION NEW:RSA1024 port=%s" % self.fileserver_port)
         match = re.search("ServiceID=([A-Za-z0-9]+).*PrivateKey=RSA1024:(.*?)[\r\n]", res, re.DOTALL)
         if match:
             onion_address, onion_privatekey = match.groups()
-            self.privatekeys[onion_address] = onion_privatekey
-            self.status = u"OK (%s onion running)" % len(self.privatekeys)
-            SiteManager.peer_blacklist.append((onion_address + ".onion", self.fileserver_port))
-            return onion_address
+            return (onion_address, onion_privatekey)
         else:
-            self.status = u"AddOnion error (%s)" % res
+            self.setStatus(u"AddOnion error (%s)" % res)
             self.log.error("Tor addOnion error: %s" % res)
             return False
 
@@ -211,10 +243,10 @@ class TorManager:
         res = self.request("DEL_ONION %s" % address)
         if "250 OK" in res:
             del self.privatekeys[address]
-            self.status = "OK (%s onion running)" % len(self.privatekeys)
+            self.setStatus("OK (%s onion running)" % len(self.privatekeys))
             return True
         else:
-            self.status = u"DelOnion error (%s)" % res
+            self.setStatus(u"DelOnion error (%s)" % res)
             self.log.error("Tor delOnion error: %s" % res)
             self.disconnect()
             return False
@@ -232,8 +264,19 @@ class TorManager:
         if not conn:
             conn = self.conn
         self.log.debug("> %s" % cmd)
-        conn.send("%s\r\n" % cmd)
-        back = conn.recv(1024 * 64).decode("utf8", "ignore")
+        back = ""
+        for retry in range(2):
+            try:
+                conn.sendall("%s\r\n" % cmd)
+                while not back.endswith("250 OK\r\n"):
+                    back += conn.recv(1024 * 64).decode("utf8", "ignore")
+                break
+            except Exception, err:
+                self.log.error("Tor send error: %s, reconnecting..." % err)
+                self.disconnect()
+                time.sleep(1)
+                self.connect()
+                back = None
         self.log.debug("< %s" % back.strip())
         return back
 
@@ -247,7 +290,7 @@ class TorManager:
         with self.lock:
             if not self.enabled:
                 return None
-            if self.start_onions:  # Different onion for every site
+            if config.tor == "always":  # Different onion for every site
                 onion = self.site_onions.get(site_address)
             else:  # Same onion for every site
                 onion = self.site_onions.get("global")
@@ -258,15 +301,15 @@ class TorManager:
                 self.log.debug("Created new hidden service for %s: %s" % (site_address, onion))
             return onion
 
+    # Creates and returns a
+    # socket that has connected to the Tor Network
     def createSocket(self, onion, port):
         if not self.enabled:
             return False
-        self.log.debug("Creating new socket to %s:%s" % (onion, port))
-        if config.tor == "always":  # Every socket is proxied by default
+        self.log.debug("Creating new Tor socket to %s:%s" % (onion, port))
+        if config.tor == "always":  # Every socket is proxied by default, in this mode
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((onion, int(port)))
         else:
             sock = socks.socksocket()
             sock.set_proxy(socks.SOCKS5, self.proxy_ip, self.proxy_port)
-            sock.connect((onion, int(port)))
         return sock

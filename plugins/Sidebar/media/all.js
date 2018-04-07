@@ -5,7 +5,7 @@
 
 (function() {
   var Class,
-    __slice = [].slice;
+    slice = [].slice;
 
   Class = (function() {
     function Class() {}
@@ -14,7 +14,7 @@
 
     Class.prototype.log = function() {
       var args;
-      args = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+      args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
       if (!this.trace) {
         return;
       }
@@ -28,23 +28,23 @@
 
     Class.prototype.logStart = function() {
       var args, name;
-      name = arguments[0], args = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
+      name = arguments[0], args = 2 <= arguments.length ? slice.call(arguments, 1) : [];
       if (!this.trace) {
         return;
       }
       this.logtimers || (this.logtimers = {});
       this.logtimers[name] = +(new Date);
       if (args.length > 0) {
-        this.log.apply(this, ["" + name].concat(__slice.call(args), ["(started)"]));
+        this.log.apply(this, ["" + name].concat(slice.call(args), ["(started)"]));
       }
       return this;
     };
 
     Class.prototype.logEnd = function() {
       var args, ms, name;
-      name = arguments[0], args = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
+      name = arguments[0], args = 2 <= arguments.length ? slice.call(arguments, 1) : [];
       ms = +(new Date) - this.logtimers[name];
-      this.log.apply(this, ["" + name].concat(__slice.call(args), ["(Done in " + ms + "ms)"]));
+      this.log.apply(this, ["" + name].concat(slice.call(args), ["(Done in " + ms + "ms)"]));
       return this;
     };
 
@@ -53,6 +53,89 @@
   })();
 
   window.Class = Class;
+
+}).call(this);
+
+
+/* ---- plugins/Sidebar/media/Menu.coffee ---- */
+
+
+(function() {
+  var Menu,
+    slice = [].slice;
+
+  Menu = (function() {
+    function Menu(button) {
+      this.button = button;
+      this.elem = $(".menu.template").clone().removeClass("template");
+      this.elem.appendTo("body");
+      this.items = [];
+    }
+
+    Menu.prototype.show = function() {
+      var button_pos, left;
+      if (window.visible_menu && window.visible_menu.button[0] === this.button[0]) {
+        window.visible_menu.hide();
+        return this.hide();
+      } else {
+        button_pos = this.button.offset();
+        left = button_pos.left;
+        this.elem.css({
+          "top": button_pos.top + this.button.outerHeight(),
+          "left": left
+        });
+        this.button.addClass("menu-active");
+        this.elem.addClass("visible");
+        if (this.elem.position().left + this.elem.width() + 20 > window.innerWidth) {
+          this.elem.css("left", window.innerWidth - this.elem.width() - 20);
+        }
+        if (window.visible_menu) {
+          window.visible_menu.hide();
+        }
+        return window.visible_menu = this;
+      }
+    };
+
+    Menu.prototype.hide = function() {
+      this.elem.removeClass("visible");
+      this.button.removeClass("menu-active");
+      return window.visible_menu = null;
+    };
+
+    Menu.prototype.addItem = function(title, cb) {
+      var item;
+      item = $(".menu-item.template", this.elem).clone().removeClass("template");
+      item.html(title);
+      item.on("click", (function(_this) {
+        return function() {
+          if (!cb(item)) {
+            _this.hide();
+          }
+          return false;
+        };
+      })(this));
+      item.appendTo(this.elem);
+      this.items.push(item);
+      return item;
+    };
+
+    Menu.prototype.log = function() {
+      var args;
+      args = 1 <= arguments.length ? slice.call(arguments, 0) : [];
+      return console.log.apply(console, ["[Menu]"].concat(slice.call(args)));
+    };
+
+    return Menu;
+
+  })();
+
+  window.Menu = Menu;
+
+  $("body").on("click", function(e) {
+    if (window.visible_menu && e.target !== window.visible_menu.button[0] && $(e.target).parent()[0] !== window.visible_menu.elem[0]) {
+      return window.visible_menu.hide();
+    }
+  });
 
 }).call(this);
 
@@ -186,21 +269,24 @@ window.initScrollable = function () {
 
 
 (function() {
-  var Sidebar,
-    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    __hasProp = {}.hasOwnProperty;
+  var Sidebar, wrapper,
+    bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty,
+    indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
 
-  Sidebar = (function(_super) {
-    __extends(Sidebar, _super);
+  Sidebar = (function(superClass) {
+    extend(Sidebar, superClass);
 
-    function Sidebar() {
-      this.unloadGlobe = __bind(this.unloadGlobe, this);
-      this.displayGlobe = __bind(this.displayGlobe, this);
-      this.loadGlobe = __bind(this.loadGlobe, this);
-      this.animDrag = __bind(this.animDrag, this);
-      this.waitMove = __bind(this.waitMove, this);
-      this.resized = __bind(this.resized, this);
+    function Sidebar(wrapper1) {
+      this.wrapper = wrapper1;
+      this.unloadGlobe = bind(this.unloadGlobe, this);
+      this.displayGlobe = bind(this.displayGlobe, this);
+      this.loadGlobe = bind(this.loadGlobe, this);
+      this.animDrag = bind(this.animDrag, this);
+      this.setHtmlTag = bind(this.setHtmlTag, this);
+      this.waitMove = bind(this.waitMove, this);
+      this.resized = bind(this.resized, this);
       this.tag = null;
       this.container = null;
       this.opened = false;
@@ -214,7 +300,8 @@ window.initScrollable = function () {
       this.initFixbutton();
       this.dragStarted = 0;
       this.globe = null;
-      this.original_set_site_info = wrapper.setSiteInfo;
+      this.preload_html = null;
+      this.original_set_site_info = this.wrapper.setSiteInfo;
       if (false) {
         this.startDrag();
         this.moved();
@@ -226,8 +313,11 @@ window.initScrollable = function () {
     Sidebar.prototype.initFixbutton = function() {
       this.fixbutton.on("mousedown touchstart", (function(_this) {
         return function(e) {
+          if (e.button > 0) {
+            return;
+          }
           e.preventDefault();
-          _this.fixbutton.off("click touchstop touchcancel");
+          _this.fixbutton.off("click touchend touchcancel");
           _this.fixbutton.off("mousemove touchmove");
           _this.dragStarted = +(new Date);
           return _this.fixbutton.one("mousemove touchmove", function(e) {
@@ -241,8 +331,11 @@ window.initScrollable = function () {
           });
         };
       })(this));
-      this.fixbutton.parent().on("click touchstop touchcancel", (function(_this) {
+      this.fixbutton.parent().on("click touchend touchcancel", (function(_this) {
         return function(e) {
+          if ((+(new Date)) - _this.dragStarted < 100) {
+            window.top.location = _this.fixbutton.find(".fixbutton-bg").attr("href");
+          }
           return _this.stopDrag();
         };
       })(this));
@@ -283,7 +376,7 @@ window.initScrollable = function () {
       })(this));
       this.fixbutton.parents().on("mousemove touchmove", this.animDrag);
       this.fixbutton.parents().on("mousemove touchmove", this.waitMove);
-      return this.fixbutton.parents().on("mouseup touchstop touchend touchcancel", (function(_this) {
+      return this.fixbutton.parents().on("mouseup touchend touchend touchcancel", (function(_this) {
         return function(e) {
           e.preventDefault();
           return _this.stopDrag();
@@ -312,10 +405,10 @@ window.initScrollable = function () {
         };
       })(this));
       $(window).trigger("resize");
-      wrapper.setSiteInfo = (function(_this) {
+      this.wrapper.setSiteInfo = (function(_this) {
         return function(site_info) {
           _this.setSiteInfo(site_info);
-          return _this.original_set_site_info.apply(wrapper, arguments);
+          return _this.original_set_site_info.apply(_this.wrapper, arguments);
         };
       })(this);
       img = new Image();
@@ -347,26 +440,32 @@ window.initScrollable = function () {
     };
 
     Sidebar.prototype.updateHtmlTag = function() {
-      return wrapper.ws.cmd("sidebarGetHtmlTag", {}, (function(_this) {
-        return function(res) {
-          if (_this.tag.find(".content").children().length === 0) {
-            _this.log("Creating content");
-            morphdom(_this.tag.find(".content")[0], '<div class="content">' + res + '</div>');
-            return _this.when_loaded.resolve();
-          } else {
-            _this.log("Patching content");
-            return morphdom(_this.tag.find(".content")[0], '<div class="content">' + res + '</div>', {
-              onBeforeMorphEl: function(from_el, to_el) {
-                if (from_el.className === "globe" || from_el.className.indexOf("noupdate") >= 0) {
-                  return false;
-                } else {
-                  return true;
-                }
-              }
-            });
+      if (this.preload_html) {
+        this.setHtmlTag(this.preload_html);
+        return this.preload_html = null;
+      } else {
+        return this.wrapper.ws.cmd("sidebarGetHtmlTag", {}, this.setHtmlTag);
+      }
+    };
+
+    Sidebar.prototype.setHtmlTag = function(res) {
+      if (this.tag.find(".content").children().length === 0) {
+        this.log("Creating content");
+        this.container.addClass("loaded");
+        morphdom(this.tag.find(".content")[0], '<div class="content">' + res + '</div>');
+        return this.when_loaded.resolve();
+      } else {
+        this.log("Patching content");
+        return morphdom(this.tag.find(".content")[0], '<div class="content">' + res + '</div>', {
+          onBeforeMorphEl: function(from_el, to_el) {
+            if (from_el.className === "globe" || from_el.className.indexOf("noupdate") >= 0) {
+              return false;
+            } else {
+              return true;
+            }
           }
-        };
-      })(this));
+        });
+      }
     };
 
     Sidebar.prototype.animDrag = function(e) {
@@ -420,7 +519,9 @@ window.initScrollable = function () {
           this.opened = false;
         } else {
           targetx = this.width;
-          if (!this.opened) {
+          if (this.opened) {
+            this.onOpened();
+          } else {
             this.when_loaded.done((function(_this) {
               return function() {
                 return _this.onOpened();
@@ -429,18 +530,20 @@ window.initScrollable = function () {
           }
           this.opened = true;
         }
-        this.tag.css("transition", "0.4s ease-out");
-        this.tag.css("transform", "translateX(-" + targetx + "px)").one(transitionEnd, (function(_this) {
-          return function() {
-            _this.tag.css("transition", "");
-            if (!_this.opened) {
-              _this.container.remove();
-              _this.container = null;
-              _this.tag.remove();
-              return _this.tag = null;
-            }
-          };
-        })(this));
+        if (this.tag) {
+          this.tag.css("transition", "0.4s ease-out");
+          this.tag.css("transform", "translateX(-" + targetx + "px)").one(transitionEnd, (function(_this) {
+            return function() {
+              _this.tag.css("transition", "");
+              if (!_this.opened) {
+                _this.container.remove();
+                _this.container = null;
+                _this.tag.remove();
+                return _this.tag = null;
+              }
+            };
+          })(this));
+        }
         this.log("stopdrag", "opened:", this.opened);
         if (!this.opened) {
           return this.onClosed();
@@ -449,102 +552,138 @@ window.initScrollable = function () {
     };
 
     Sidebar.prototype.onOpened = function() {
+      var menu;
       this.log("Opened");
       this.scrollable();
-      this.tag.find("#checkbox-owned").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-owned, #checkbox-autodownloadoptional").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           return setTimeout((function() {
             return _this.scrollable();
           }), 300);
         };
       })(this));
-      this.tag.find("#button-sitelimit").off("click").on("click", (function(_this) {
+      this.tag.find("#button-sitelimit").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          wrapper.ws.cmd("siteSetLimit", $("#input-sitelimit").val(), function() {
-            wrapper.notifications.add("done-sitelimit", "done", "Site storage limit modified!", 5000);
+          _this.wrapper.ws.cmd("siteSetLimit", $("#input-sitelimit").val(), function(res) {
+            if (res === "ok") {
+              _this.wrapper.notifications.add("done-sitelimit", "done", "Site storage limit modified!", 5000);
+            }
             return _this.updateHtmlTag();
           });
           return false;
         };
       })(this));
-      this.tag.find("#button-dbreload").off("click").on("click", (function(_this) {
+      this.tag.find("#button-autodownload_bigfile_size_limit").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          wrapper.ws.cmd("dbReload", [], function() {
-            wrapper.notifications.add("done-sitelimit", "done", "Database schema reloaded", 5000);
+          _this.wrapper.ws.cmd("siteSetAutodownloadBigfileLimit", $("#input-autodownload_bigfile_size_limit").val(), function(res) {
+            if (res === "ok") {
+              _this.wrapper.notifications.add("done-bigfilelimit", "done", "Site bigfile auto download limit modified!", 5000);
+            }
             return _this.updateHtmlTag();
           });
           return false;
         };
       })(this));
-      this.tag.find("#button-update").off("click").on("click", (function(_this) {
+      this.tag.find("#button-dbreload").off("click touchend").on("click touchend", (function(_this) {
+        return function() {
+          _this.wrapper.ws.cmd("dbReload", [], function() {
+            _this.wrapper.notifications.add("done-dbreload", "done", "Database schema reloaded!", 5000);
+            return _this.updateHtmlTag();
+          });
+          return false;
+        };
+      })(this));
+      this.tag.find("#button-dbrebuild").off("click touchend").on("click touchend", (function(_this) {
+        return function() {
+          _this.wrapper.notifications.add("done-dbrebuild", "info", "Database rebuilding....");
+          _this.wrapper.ws.cmd("dbRebuild", [], function() {
+            _this.wrapper.notifications.add("done-dbrebuild", "done", "Database rebuilt!", 5000);
+            return _this.updateHtmlTag();
+          });
+          return false;
+        };
+      })(this));
+      this.tag.find("#button-update").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           _this.tag.find("#button-update").addClass("loading");
-          wrapper.ws.cmd("siteUpdate", wrapper.site_info.address, function() {
-            wrapper.notifications.add("done-updated", "done", "Site updated!", 5000);
+          _this.wrapper.ws.cmd("siteUpdate", _this.wrapper.site_info.address, function() {
+            _this.wrapper.notifications.add("done-updated", "done", "Site updated!", 5000);
             return _this.tag.find("#button-update").removeClass("loading");
           });
           return false;
         };
       })(this));
-      this.tag.find("#button-pause").off("click").on("click", (function(_this) {
+      this.tag.find("#button-pause").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           _this.tag.find("#button-pause").addClass("hidden");
-          wrapper.ws.cmd("sitePause", wrapper.site_info.address);
+          _this.wrapper.ws.cmd("sitePause", _this.wrapper.site_info.address);
           return false;
         };
       })(this));
-      this.tag.find("#button-resume").off("click").on("click", (function(_this) {
+      this.tag.find("#button-resume").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           _this.tag.find("#button-resume").addClass("hidden");
-          wrapper.ws.cmd("siteResume", wrapper.site_info.address);
+          _this.wrapper.ws.cmd("siteResume", _this.wrapper.site_info.address);
           return false;
         };
       })(this));
-      this.tag.find("#button-delete").off("click").on("click", (function(_this) {
+      this.tag.find("#button-delete").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          wrapper.displayConfirm("Are you sure?", "Delete this site", function() {
-            _this.tag.find("#button-delete").addClass("loading");
-            return wrapper.ws.cmd("siteDelete", wrapper.site_info.address, function() {
-              return document.location = $(".fixbutton-bg").attr("href");
-            });
+          _this.wrapper.displayConfirm("Are you sure?", ["Delete this site", "Blacklist"], function(confirmed) {
+            if (confirmed === 1) {
+              _this.tag.find("#button-delete").addClass("loading");
+              return _this.wrapper.ws.cmd("siteDelete", _this.wrapper.site_info.address, function() {
+                return document.location = $(".fixbutton-bg").attr("href");
+              });
+            } else if (confirmed === 2) {
+              return _this.wrapper.displayPrompt("Blacklist this site", "text", "Delete and Blacklist", "Reason", function(reason) {
+                _this.tag.find("#button-delete").addClass("loading");
+                _this.wrapper.ws.cmd("blacklistAdd", [_this.wrapper.site_info.address, reason]);
+                return _this.wrapper.ws.cmd("siteDelete", _this.wrapper.site_info.address, function() {
+                  return document.location = $(".fixbutton-bg").attr("href");
+                });
+              });
+            }
           });
           return false;
         };
       })(this));
-      this.tag.find("#checkbox-owned").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-owned").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          return wrapper.ws.cmd("siteSetOwned", [_this.tag.find("#checkbox-owned").is(":checked")]);
+          return _this.wrapper.ws.cmd("siteSetOwned", [_this.tag.find("#checkbox-owned").is(":checked")]);
         };
       })(this));
-      this.tag.find("#checkbox-autodownloadoptional").off("click").on("click", (function(_this) {
+      this.tag.find("#checkbox-autodownloadoptional").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          return wrapper.ws.cmd("siteSetAutodownloadoptional", [_this.tag.find("#checkbox-autodownloadoptional").is(":checked")]);
+          return _this.wrapper.ws.cmd("siteSetAutodownloadoptional", [_this.tag.find("#checkbox-autodownloadoptional").is(":checked")]);
         };
       })(this));
-      this.tag.find("#button-identity").off("click").on("click", (function(_this) {
+      this.tag.find("#button-identity").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          wrapper.ws.cmd("certSelect");
+          _this.wrapper.ws.cmd("certSelect");
           return false;
         };
       })(this));
-      this.tag.find("#checkbox-owned").off("click").on("click", (function(_this) {
+      this.tag.find("#button-settings").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          return wrapper.ws.cmd("siteSetOwned", [_this.tag.find("#checkbox-owned").is(":checked")]);
-        };
-      })(this));
-      this.tag.find("#button-settings").off("click").on("click", (function(_this) {
-        return function() {
-          wrapper.ws.cmd("fileGet", "content.json", function(res) {
+          _this.wrapper.ws.cmd("fileGet", "content.json", function(res) {
             var data, json_raw;
             data = JSON.parse(res);
             data["title"] = $("#settings-title").val();
             data["description"] = $("#settings-description").val();
             json_raw = unescape(encodeURIComponent(JSON.stringify(data, void 0, '\t')));
-            return wrapper.ws.cmd("fileWrite", ["content.json", btoa(json_raw)], function(res) {
+            return _this.wrapper.ws.cmd("fileWrite", ["content.json", btoa(json_raw), true], function(res) {
               if (res !== "ok") {
-                return wrapper.notifications.add("file-write", "error", "File write error: " + res);
+                return _this.wrapper.notifications.add("file-write", "error", "File write error: " + res);
               } else {
-                wrapper.notifications.add("file-write", "done", "Site settings saved!", 5000);
+                _this.wrapper.notifications.add("file-write", "done", "Site settings saved!", 5000);
+                if (_this.wrapper.site_info.privatekey) {
+                  _this.wrapper.ws.cmd("siteSign", {
+                    privatekey: "stored",
+                    inner_path: "content.json",
+                    update_changed_files: true
+                  });
+                }
                 return _this.updateHtmlTag();
               }
             });
@@ -552,45 +691,131 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      this.tag.find("#button-sign").off("click").on("click", (function(_this) {
+      this.tag.find("#link-directory").off("click touchend").on("click touchend", (function(_this) {
+        return function() {
+          _this.wrapper.ws.cmd("serverShowdirectory", ["site", _this.wrapper.site_info.address]);
+          return false;
+        };
+      })(this));
+      $(document).on("click touchend", (function(_this) {
+        return function() {
+          var ref, ref1;
+          if ((ref = _this.tag) != null) {
+            ref.find("#button-sign-publish-menu").removeClass("visible");
+          }
+          return (ref1 = _this.tag) != null ? ref1.find(".contents + .flex").removeClass("sign-publish-flex") : void 0;
+        };
+      })(this));
+      menu = new Menu(this.tag.find("#menu-sign-publish"));
+      menu.elem.css("margin-top", "-130px");
+      menu.addItem("Sign", (function(_this) {
         return function() {
           var inner_path;
           inner_path = _this.tag.find("#input-contents").val();
-          if (wrapper.site_info.privatekey) {
-            wrapper.ws.cmd("siteSign", {
-              privatekey: "stored",
-              inner_path: inner_path,
-              update_changed_files: true
-            }, function(res) {
-              return wrapper.notifications.add("sign", "done", inner_path + " Signed!", 5000);
-            });
-          } else {
-            wrapper.displayPrompt("Enter your private key:", "password", "Sign", function(privatekey) {
-              return wrapper.ws.cmd("siteSign", {
-                privatekey: privatekey,
+          _this.wrapper.ws.cmd("fileRules", {
+            inner_path: inner_path
+          }, function(res) {
+            var ref;
+            if (_this.wrapper.site_info.privatekey || (ref = _this.wrapper.site_info.auth_address, indexOf.call(res.signers, ref) >= 0)) {
+              return _this.wrapper.ws.cmd("siteSign", {
+                privatekey: "stored",
                 inner_path: inner_path,
                 update_changed_files: true
               }, function(res) {
                 if (res === "ok") {
-                  return wrapper.notifications.add("sign", "done", inner_path + " Signed!", 5000);
+                  return _this.wrapper.notifications.add("sign", "done", inner_path + " Signed!", 5000);
                 }
               });
-            });
+            } else {
+              return _this.wrapper.displayPrompt("Enter your private key:", "password", "Sign", "", function(privatekey) {
+                return _this.wrapper.ws.cmd("siteSign", {
+                  privatekey: privatekey,
+                  inner_path: inner_path,
+                  update_changed_files: true
+                }, function(res) {
+                  if (res === "ok") {
+                    return _this.wrapper.notifications.add("sign", "done", inner_path + " Signed!", 5000);
+                  }
+                });
+              });
+            }
+          });
+          _this.tag.find(".contents + .flex").removeClass("active");
+          return menu.hide();
+        };
+      })(this));
+      menu.addItem("Publish", (function(_this) {
+        return function() {
+          var inner_path;
+          inner_path = _this.tag.find("#input-contents").val();
+          _this.wrapper.ws.cmd("sitePublish", {
+            "inner_path": inner_path,
+            "sign": false
+          });
+          _this.tag.find(".contents + .flex").removeClass("active");
+          return menu.hide();
+        };
+      })(this));
+      this.tag.find("#menu-sign-publish").off("click touchend").on("click touchend", (function(_this) {
+        return function() {
+          if (window.visible_menu === menu) {
+            _this.tag.find(".contents + .flex").removeClass("active");
+            menu.hide();
+          } else {
+            _this.tag.find(".contents + .flex").addClass("active");
+            _this.tag.find(".content-wrapper").prop("scrollTop", 10000);
+            menu.show();
           }
           return false;
         };
       })(this));
-      this.tag.find("#button-publish").off("click").on("click", (function(_this) {
+      $("body").on("click", (function(_this) {
+        return function() {
+          if (_this.tag) {
+            return _this.tag.find(".contents + .flex").removeClass("active");
+          }
+        };
+      })(this));
+      this.tag.find("#button-sign-publish").off("click touchend").on("click touchend", (function(_this) {
         return function() {
           var inner_path;
           inner_path = _this.tag.find("#input-contents").val();
-          _this.tag.find("#button-publish").addClass("loading");
-          return wrapper.ws.cmd("sitePublish", {
-            "inner_path": inner_path,
-            "sign": false
-          }, function() {
-            return _this.tag.find("#button-publish").removeClass("loading");
+          _this.wrapper.ws.cmd("fileRules", {
+            inner_path: inner_path
+          }, function(res) {
+            var ref;
+            if (_this.wrapper.site_info.privatekey || (ref = _this.wrapper.site_info.auth_address, indexOf.call(res.signers, ref) >= 0)) {
+              return _this.wrapper.ws.cmd("sitePublish", {
+                privatekey: "stored",
+                inner_path: inner_path,
+                sign: true
+              }, function(res) {
+                if (res === "ok") {
+                  return _this.wrapper.notifications.add("sign", "done", inner_path + " Signed and published!", 5000);
+                }
+              });
+            } else {
+              return _this.wrapper.displayPrompt("Enter your private key:", "password", "Sign", "", function(privatekey) {
+                return _this.wrapper.ws.cmd("sitePublish", {
+                  privatekey: privatekey,
+                  inner_path: inner_path,
+                  sign: true
+                }, function(res) {
+                  if (res === "ok") {
+                    return _this.wrapper.notifications.add("sign", "done", inner_path + " Signed and published!", 5000);
+                  }
+                });
+              });
+            }
           });
+          return false;
+        };
+      })(this));
+      this.tag.find(".close").off("click touchend").on("click touchend", (function(_this) {
+        return function(e) {
+          _this.startDrag();
+          _this.stopDrag();
+          return false;
         };
       })(this));
       return this.loadGlobe();
@@ -607,7 +832,7 @@ window.initScrollable = function () {
           }
         };
       })(this));
-      return wrapper.setSiteInfo = this.original_set_site_info;
+      return this.wrapper.setSiteInfo = this.original_set_site_info;
     };
 
     Sidebar.prototype.loadGlobe = function() {
@@ -631,8 +856,8 @@ window.initScrollable = function () {
       img.src = "/uimedia/globe/world.jpg";
       return img.onload = (function(_this) {
         return function() {
-          return wrapper.ws.cmd("sidebarGetPeers", [], function(globe_data) {
-            var e;
+          return _this.wrapper.ws.cmd("sidebarGetPeers", [], function(globe_data) {
+            var e, ref, ref1;
             if (_this.globe) {
               _this.globe.scene.remove(_this.globe.points);
               _this.globe.addData(globe_data, {
@@ -652,13 +877,15 @@ window.initScrollable = function () {
                 });
                 _this.globe.createPoints();
                 _this.globe.animate();
-              } catch (_error) {
-                e = _error;
+              } catch (error) {
+                e = error;
                 console.log("WebGL error", e);
-                _this.tag.find(".globe").addClass("error").text("WebGL not supported");
+                if ((ref = _this.tag) != null) {
+                  ref.find(".globe").addClass("error").text("WebGL not supported");
+                }
               }
             }
-            return _this.tag.find(".globe").removeClass("loading");
+            return (ref1 = _this.tag) != null ? ref1.find(".globe").removeClass("loading") : void 0;
           });
         };
       })(this);
@@ -676,8 +903,10 @@ window.initScrollable = function () {
 
   })(Class);
 
+  wrapper = window.wrapper;
+
   setTimeout((function() {
-    return window.sidebar = new Sidebar();
+    return window.sidebar = new Sidebar(wrapper);
   }), 500);
 
   window.transitionEnd = 'transitionend webkitTransitionEnd oTransitionEnd otransitionend';
